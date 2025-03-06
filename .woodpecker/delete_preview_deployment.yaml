@@ -1,0 +1,20 @@
+when:
+  event: pull_request_closed
+
+steps:
+  - name: shutdown
+    image: bash
+    commands:
+      - 'chmod +x ./scripts/github/delete_current_github_deployments.sh && ./scripts/github/delete_current_github_deployments.sh'
+      - 'chmod +x ./scripts/codesphere/get_workspace_by_name.sh && ./scripts/codesphere/get_workspace_by_name.sh'
+      - source envvars
+      - 'chmod +x ./scripts/codesphere/delete_workspace.sh && ./scripts/codesphere/delete_workspace.sh $WORKSPACE_ID'
+    environment:
+      TOKEN_ENV:
+        from_secret: codesphereAPIKey
+      TEAM_ID:
+        from_secret: teamId
+      GITHUB_TOKEN:
+        from_secret: github-token
+    when:
+      event: pull_request_closed

@@ -1,0 +1,78 @@
+#!/bin/bash
+
+ENVIRONMENT="codesphere"
+API_URL="https://api.github.com/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/deployments"
+
+echo "🔍 Suche nach Deployments für Branch: ${CI_COMMIT_SOURCE_BRANCH} in Environment: $ENVIRONMENT..."
+
+# Deployments abrufen
+RESPONSE=$(curl -s -L \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "$API_URL?ref=${CI_COMMIT_SOURCE_BRANCH}&environment=$ENVIRONMENT")
+
+# Prüfen, ob Deployments gefunden wurden
+if [[ $(echo "$RESPONSE" | jq length) -eq 0 ]]; then
+  echo "❌ Keine Deployments gefunden für Branch: ${CI_COMMIT_SOURCE_BRANCH} in Environment: $ENVIRONMENT"
+  exit 0
+fi
+
+# Deployment IDs in ein Array packen
+DEPLOYMENT_IDS=($(echo "$RESPONSE" | jq -r '.[].id'))
+STATUSES_URLS=($(echo "$RESPONSE" | jq -r '.[].statuses_url'))
+
+echo "✅ Gefundene Deployments:"
+for id in "${DEPLOYMENT_IDS[@]}"; do
+  echo "- $id"
+done
+
+# Deployments prüfen und löschen
+echo "🚨 Überprüfe Deployments auf active Status..."
+
+for i in "${!DEPLOYMENT_IDS[@]}"; do
+  id=${DEPLOYMENT_IDS[$i]}
+  statuses_url=${STATUSES_URLS[$i]}
+
+  # Letzten Status abrufen
+  STATUS_RESPONSE=$(curl -s -L \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer $GITHUB_TOKEN" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "$statuses_url")
+
+  LAST_STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.[0].state')
+
+  echo "🔍 Deployment $id Status: $LAST_STATUS"
+
+  if [[ "$LAST_STATUS" == "success" ]]; then
+    echo "⚠️ Deployment $id ist active, wird zuerst deaktiviert..."
+
+    # Deployment auf inactive setzen
+    curl -s -X POST \
+      -H "Accept: application/vnd.github+json" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      -d "{\"state\": \"inactive\"}" \
+      "$statuses_url"
+
+    echo "✅ Deployment $id wurde deaktiviert!"
+  fi
+
+  # Deployment löschen
+  DELETE_RESPONSE=$(curl -s -L \
+    -X DELETE \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer $GITHUB_TOKEN" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "$API_URL/$id")
+
+  if [[ -z "$DELETE_RESPONSE" ]]; then
+    echo "✅ Deployment $id erfolgreich gelöscht!"
+  else
+    echo "❌ Fehler beim Löschen von Deployment $id"
+    echo "$DELETE_RESPONSE"
+  fi
+done
+
+echo "🎯 Alle Deployments überprüft und gelöscht!"

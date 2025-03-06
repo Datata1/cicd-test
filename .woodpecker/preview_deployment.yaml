@@ -1,0 +1,95 @@
+when:
+  event: pull_request
+
+steps:
+
+  - name: check-if-deployment-is-up
+    image: bash
+    commands:
+      - chmod +x scripts/codesphere/get_teams.sh && ./scripts/codesphere/get_teams.sh
+      - 'echo "WORKSPACE_NAME=${CI_REPO_NAME}-PR#${CI_COMMIT_PULL_REQUEST}" >> envvars'
+    environment:
+      TOKEN_ENV:
+        from_secret: codesphereAPIKey
+      TEAM_ID:
+        from_secret: teamId
+      GITHUB_TOKEN:
+        from_secret: github-token
+        
+  - name: create deployment
+    image: bash
+    commands:
+      - source envvars
+      - |
+        if echo "$RESPONSE" | grep -q "$WORKSPACE_NAME"; then
+          echo "Ja, der Workspace mit dem Namen $WORKSPACE_NAME existiert."
+          export CREATE_DEPLOYMENT=false
+        else
+          echo "Nein, der Workspace mit dem Namen $WORKSPACE_NAME existiert nicht."
+          export CREATE_DEPLOYMENT=true
+        fi
+      - |
+        if [ "$CREATE_DEPLOYMENT" = true ]; then
+          echo "Erstelle den Workspace mit dem Namen $WORKSPACE_NAME ..."
+          WORKSPACE_DEPLOYMENT=$(curl -X POST \
+            https://codesphere.com/api/workspaces \
+            -H "accept: application/json" \
+            -H "Authorization: Bearer $TOKEN_ENV" \
+            -H "Content-Type: application/json" \
+            -d "{\"teamId\": $TEAM_ID, \"name\": \"$WORKSPACE_NAME\", \"planId\": 21, \"isPrivateRepo\": true, \"gitUrl\": \"${CI_REPO_CLONE_URL}\", \"initialBranch\": \"${CI_COMMIT_SOURCE_BRANCH}\", \"replicas\": 1}")
+        else
+          echo "Workspace $WORKSPACE_NAME existiert bereits. Keine Erstellung notwendig."
+        fi
+      
+    environment:
+      TOKEN_ENV:
+        from_secret: codesphereAPIKey
+      TEAM_ID:
+        from_secret: teamId
+      GITHUB_TOKEN: 
+        from_secret: github-token
+        
+  - name: wait-until-deployment-is-running
+    image: bash
+    environment:
+      TOKEN_ENV:
+        from_secret: codesphereAPIKey
+      TEAM_ID:
+        from_secret: teamId
+      GITHUB_TOKEN:
+        from_secret: github-token
+        
+    commands:
+      - source envvars
+      - chmod +x ./scripts/codesphere/get_deployment.sh && ./scripts/codesphere/get_deployment.sh $WORKSPACE_NAME
+      - source envvars
+      - chmod +x ./scripts/codesphere/pull_repo.sh && ./scripts/codesphere/pull_repo.sh $WORKSPACE_ID 
+      - chmod +x ./scripts/codesphere/set_env_vars.sh && ./scripts/codesphere/set_env_vars.sh $WORKSPACE_ID
+      - chmod +x ./scripts/codesphere/start_pipeline.sh && ./scripts/codesphere/start_pipeline.sh $WORKSPACE_ID "prepare"
+      - chmod +x ./scripts/codesphere/start_pipeline.sh && ./scripts/codesphere/start_pipeline.sh $WORKSPACE_ID "test"
+      - chmod +x ./scripts/codesphere/landscape.sh && ./scripts/codesphere/landscape.sh $WORKSPACE_ID
+      - chmod +x ./scripts/codesphere/start_pipeline.sh && ./scripts/codesphere/start_pipeline.sh $WORKSPACE_ID "run"
+
+  - name: create deployment
+    image: bash
+    environment:
+      TOKEN_ENV:
+        from_secret: codesphereAPIKey
+      TEAM_ID:
+        from_secret: teamId
+      GITHUB_TOKEN:
+        from_secret: github-token
+    commands:
+      - source envvars
+      - chmod +x ./scripts/github/create_environment.sh && ./scripts/github/create_environment.sh
+      - chmod +x ./scripts/github/delete_current_github_deployments.sh && ./scripts/github/delete_current_github_deployments.sh
+      - chmod +x ./scripts/codesphere/get_deployment.sh && ./scripts/codesphere/get_deployment.sh $WORKSPACE_NAME
+      - chmod +x ./scripts/github/start_github_deployment.sh && ./scripts/github/start_github_deployment.sh
+      - source envvars
+      - echo $DATACENTER_ID
+      - echo $DEPLOYMENT_ID
+      - chmod +x ./scripts/github/update_github_deployment.sh && ./scripts/github/update_github_deployment.sh $DEPLOYMENT_ID $DATACENTER_ID
+    when: 
+      - status: [success]
+
+    
