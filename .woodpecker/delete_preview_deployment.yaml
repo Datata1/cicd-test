@@ -1,3 +1,12 @@
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      lfs: false
+      recursive: false
+      branch: ${CI_COMMIT_TARGET_BRANCH}
+
+
 when:
   event: pull_request_closed
 
