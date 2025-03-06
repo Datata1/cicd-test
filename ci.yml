@@ -1,0 +1,19 @@
+schemaVersion: v0.2
+prepare:
+  steps:
+    - command: echo hi
+    - command: sleep 1
+test:
+  steps:
+    - command: sleep 1
+    - command: echo hi
+run:
+  service-1:
+    steps:
+      - command: chmod +x script.sh && ./script.sh
+    plan: 8
+    replicas: 1
+    isPublic: true
+    network:
+      path: /
+      stripPath: false
